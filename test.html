@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>簡易抽籤器</title>
+    <style>
+        :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans",Helvetica,Arial;}
+        body{max-width:900px;margin:32px auto;padding:16px;line-height:1.4;color:#111;}
+        h1{margin:0 0 12px;font-size:1.4rem;}
+        .grid{display:grid;grid-template-columns:1fr 300px;gap:16px;}
+        textarea{width:100%;height:320px;padding:10px;font-size:14px;box-sizing:border-box;resize:vertical;}
+        .panel{border:1px solid #ddd;padding:12px;border-radius:8px;background:#fafafa;}
+        label{display:block;margin-bottom:6px;font-weight:600;font-size:0.95rem;}
+        .controls{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
+        input[type="number"]{width:80px;padding:6px;}
+        button{padding:8px 12px;border-radius:6px;border:1px solid #888;background:#fff;cursor:pointer;}
+        button.primary{background:#0b79ff;color:#fff;border-color:#0b79ff;}
+        .display{height:72px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:700;border-radius:6px;border:1px dashed #bbb;background:#fff;}
+        ul{list-style:none;padding:0;margin:8px 0 0;max-height:240px;overflow:auto;}
+        li{padding:6px 8px;border-radius:6px;margin-bottom:6px;background:#fff;border:1px solid #eee;display:flex;justify-content:space-between;align-items:center;}
+        .winner{background:linear-gradient(90deg,#fff9e6,#fff3d6);border-color:#ffd27a;}
+        .small{font-size:0.85rem;color:#555;}
+        footer{margin-top:18px;color:#666;font-size:0.85rem;}
+    </style>
+</head>
+<body>
+    <h1>抽籤器</h1>
+    <div class="grid">
+        <div>
+            <div class="panel">
+                <label for="names">參加名單（每行一個名字）</label>
+                <textarea id="names" placeholder="例如：&#10;陳小明&#10;張三&#10;李四"></textarea>
+                <div style="margin-top:10px" class="controls">
+                    <label class="small" for="count">抽幾位：</label>
+                    <input id="count" type="number" min="1" value="1" />
+                    <button id="drawBtn" class="primary">抽籤</button>
+                    <button id="resetBtn">重置</button>
+                </div>
+                <div class="display" id="display">等待抽籤…</div>
+            </div>
+        </div>
+
+        <div>
+            <div class="panel">
+                <label>中籤名單</label>
+                <ul id="winners"></ul>
+                <div style="margin-top:10px">
+                    <button id="exportBtn">匯出中籤者 (TXT)</button>
+                    <button id="clearWinners">清除名單</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        使用說明：將每位參與者名稱逐行貼上，設定抽取人數後點選「抽籤」。預設為不重複抽取（被抽到者會從名單移除）。
+    </footer>
+
+    <script>
+        // 簡單抽籤器 - 唯一、不重複抽取
+        const namesEl = document.getElementById('names');
+        const countEl = document.getElementById('count');
+        const drawBtn = document.getElementById('drawBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const display = document.getElementById('display');
+        const winnersEl = document.getElementById('winners');
+        const exportBtn = document.getElementById('exportBtn');
+        const clearWinnersBtn = document.getElementById('clearWinners');
+
+        let pool = [];     // 可抽取名單
+        let winners = [];  // 已中籤者
+
+        function parseNames() {
+            const raw = namesEl.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+            return raw;
+        }
+
+        function shuffle(arr){
+            for(let i=arr.length-1;i>0;i--){
+                const j = Math.floor(Math.random()*(i+1));
+                [arr[i],arr[j]]=[arr[j],arr[i]];
+            }
+            return arr;
+        }
+
+        function renderWinners(){
+            winnersEl.innerHTML = '';
+            winners.forEach((w, i) => {
+                const li = document.createElement('li');
+                li.className = 'winner';
+                li.innerHTML = `<span>${i+1}. ${escapeHtml(w)}</span><button data-index="${i}">移除</button>`;
+                winnersEl.appendChild(li);
+            });
+        }
+
+        function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+        drawBtn.addEventListener('click', () => {
+            const inputNames = parseNames();
+            if (inputNames.length === 0){
+                alert('請先輸入參加名單（每行一個名字）');
+                return;
+            }
+
+            if (pool.length === 0) {
+                pool = inputNames.slice(); // 初始化抽籤池（排除已中籤者）
+                // 移除已中籤（若重複貼入）
+                pool = pool.filter(n => !winners.includes(n));
+            }
+
+            const k = Math.max(1, Math.floor(Number(countEl.value) || 1));
+            if (k > pool.length){
+                alert('抽取人數超過剩餘名單人數。');
+                return;
+            }
+
+            drawBtn.disabled = true;
+            resetBtn.disabled = true;
+
+            // 快速跑馬燈效果
+            let elapsed = 0;
+            const duration = 1800 + Math.random()*1000; // 1.8 - 2.8s
+            const tick = 60 + Math.random()*90;
+            const anim = setInterval(() => {
+                const pick = pool[Math.floor(Math.random()*pool.length)];
+                display.textContent = pick;
+                elapsed += tick;
+            }, tick);
+
+            setTimeout(() => {
+                clearInterval(anim);
+                // 最終選出 k 位（不重複）
+                const selected = shuffle(pool.slice()).slice(0,k);
+                // 顯示最後一位作為結束動畫
+                display.textContent = selected[0];
+
+                // 更新 winners 與 pool
+                selected.forEach(name => {
+                    winners.push(name);
+                    const idx = pool.indexOf(name);
+                    if (idx >= 0) pool.splice(idx,1);
+                });
+
+                renderWinners();
+                drawBtn.disabled = false;
+                resetBtn.disabled = false;
+            }, duration);
+        });
+
+        resetBtn.addEventListener('click', () => {
+            if (!confirm('重置會清除抽籤池（但不會刪除已中籤列表）。要繼續嗎？')) return;
+            pool = [];
+            display.textContent = '等待抽籤…';
+        });
+
+        winnersEl.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') {
+                const idx = Number(e.target.getAttribute('data-index'));
+                if (!isNaN(idx)){
+                    const removed = winners.splice(idx,1)[0];
+                    renderWinners();
+                    // 將被移除的中籤者放回抽籤池（方便再被抽）
+                    pool.push(removed);
+                }
+            }
+        });
+
+        clearWinnersBtn.addEventListener('click', () => {
+            if (!confirm('清除所有中籤名單？')) return;
+            winners = [];
+            renderWinners();
+        });
+
+        exportBtn.addEventListener('click', () => {
+            if (winners.length === 0) { alert('目前沒有中籤者'); return; }
+            const blob = new Blob([winners.map((w,i)=>`${i+1}. ${w}`).join('\n')], {type:'text/plain;charset=utf-8'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'winners.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        // 小提示：頁面重新載入時保留輸入（可移除）
+        window.addEventListener('beforeunload', () => {
+            sessionStorage.setItem('draw_names', namesEl.value);
+            sessionStorage.setItem('draw_winners', JSON.stringify(winners));
+        });
+        window.addEventListener('load', () => {
+            const s = sessionStorage.getItem('draw_names');
+            if (s) namesEl.value = s;
+            const w = sessionStorage.getItem('draw_winners');
+            if (w) { winners = JSON.parse(w); renderWinners(); }
+        });
+    </script>
+</body>
+</html>
